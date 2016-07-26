@@ -1,39 +1,49 @@
 #!/usr/bin/python
 
 import BaseHTTPServer
-import logging
-import dbus
+#import dbus
 import json
+import gtk
 
-HOST_NAME = '0.0.0.0'
-PORT_NUMBER = 9000
+from quodlibet import app
+from quodlibet.plugins.events import EventPlugin
+from quodlibet.plugins import PluginConfigMixin
 
-session_bus = dbus.SessionBus()
+from threading import Thread
+
+#session_bus = dbus.SessionBus()
 
 class MyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 
-   proxy_player = session_bus.get_object( 'org.mpris.quodlibet', '/Player' )
-   player = dbus.Interface(
-      proxy_player,
-      dbus_interface='org.freedesktop.MediaPlayer'
-   )
+   #proxy_player = session_bus.get_object( 'org.mpris.quodlibet', '/Player' )
+   #player = dbus.Interface(
+   #   proxy_player,
+   #   dbus_interface='org.freedesktop.MediaPlayer'
+   #)
 
    def play_pause( self ):
-      self.player.Pause()
+      #self.player.Pause()
+      if app.player.paused:
+         app.player.paused = False
+      else:
+         app.player.paused = True
       return ('text/plain', 'OK')
 
    def prev( self ):
-      self.player.Prev()
+      #self.player.Prev()
+      app.player.previous()
       return ('text/plain', 'OK')
 
    def next( self ):
-      self.player.Next()
+      #self.player.Next()
+      app.player.next()
       return ('text/plain', 'OK')
 
    def now_playing( self ):
       return (
          'application/json',
-         '(' + json.dumps( self.player.GetMetadata() ) + ')'
+         #'(' + json.dumps( self.player.GetMetadata() ) + ')'
+         ''
       )
 
    def controls( self ):
@@ -87,8 +97,6 @@ setTimeout( function(){ refresh_metadata(); }, 1000 );
 
    def do_GET( self ):
 
-      logger = logging.getLogger( 'mprisweb.server.get' )
-
       try:
          (content_type, response) = {
             '/': self.controls, 
@@ -97,8 +105,6 @@ setTimeout( function(){ refresh_metadata(); }, 1000 );
             '/next': self.next,
             '/nowplaying': self.now_playing,
          }[self.path]()
-
-         logger.debug( 'Path: {}'.format( self.path ) )
 
          self.send_response( 200 )
          self.send_header( 'Content-type', content_type )
@@ -110,16 +116,91 @@ setTimeout( function(){ refresh_metadata(); }, 1000 );
          self.send_response( 404 )
          self.end_headers()
 
+class WebInterface( EventPlugin, PluginConfigMixin ):
+
+   PLUGIN_ID = 'Web Interface'
+   PLUGIN_NAME = _('Web Interface')
+   PLUGIN_DESC = _('Host a web interface for remote control.')
+   PLUGIN_VERSION = '0.4'
+   CONFIG_SECTION = 'web_interface'
+
+   DEFAULT_HOSTNAME = '127.0.0.1'
+   DEFAULT_PORT = 9000
+
+   httpd = None
+   thread = None
+
+   def start_server( self ):
+      self.httpd = BaseHTTPServer.HTTPServer(
+         (
+            self.config_get( 'web_interface_hostname', self.DEFAULT_HOSTNAME ),
+            int( self.config_get( 'web_interface_port', self.DEFAULT_PORT) )
+         ),
+         MyHandler
+      )
+      thread = Thread( target=self.httpd.serve_forever )
+      thread.start()
+
+   def stop_server( self ):
+      if None != self.httpd:
+         self.httpd.server_close()
+      self.httpd = None
+      self.thread = None
+
+   def enabled( self ):
+      try:
+         self.start_server()
+      except:
+         print( 'server error' )
+
+   def disabled( self ):
+      try:
+         self.stop_server()
+      except:
+         print( 'server error' )
+
+   def PluginPreferences( self, parent ):
+      def hostname_changed( entry ):
+         self.config_set( 'web_interface_hostname', str( entry.get_text() ) )
+         self.stop_server()
+         self.start_server()
+
+      def port_changed( entry ):
+         self.config_set( 'web_interface_port', int( entry.get_text() ) )
+         self.stop_server()
+         self.start_server()
+
+      vb = gtk.VBox( spacing=10 )
+      vb.set_border_width( 10 )
+
+      hbox = gtk.HBox( spacing=6 )
+      ve = gtk.Entry()
+      ve.set_text( str( self.config_get(
+         'web_interface_hostname', self.DEFAULT_HOSTNAME 
+      ) ) )
+      ve.set_tooltip_text( _( 'Interface address to listen on.' ) )
+      ve.connect( 'changed', hostname_changed )
+      hbox.pack_start( gtk.Label( _( 'Listen address:' ) ), expand=False )
+      hbox.pack_start( ve, expand=False )
+      vb.pack_start( hbox, expand=True )
+
+      hbox = gtk.HBox( spacing=6 )
+      ve = gtk.Entry()
+      ve.set_text( str( self.config_get(
+         'web_interface_port', self.DEFAULT_PORT
+      ) ) )
+      ve.set_tooltip_text( _( 'Port to listen on.' ) )
+      ve.connect( 'changed', port_changed )
+      hbox.pack_start( gtk.Label( _( 'Listen port:' ) ), expand=False )
+      hbox.pack_start( ve, expand=False )
+      vb.pack_start( hbox, expand=True )
+
+      vb.show_all()
+      return vb
+
 if '__main__' == __name__:
 
-   logging.basicConfig( level=logging.DEBUG )
-   logger = logging.getLogger( 'mprisweb.main' )
-   
-   httpd = BaseHTTPServer.HTTPServer( (HOST_NAME, PORT_NUMBER), MyHandler )
-   logger.info( 'Server listening: {}:{}'.format( HOST_NAME, PORT_NUMBER ) )
-   try:
-      httpd.serve_forever()
-   except KeyboardInterrupt:
-      pass
-   httpd.server_close()
+   # TODO: Make it standalone, too!
+
+   pass
 
