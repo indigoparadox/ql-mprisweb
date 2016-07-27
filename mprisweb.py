@@ -50,6 +50,19 @@ class MyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
       return('text/html', '''
 <html><head>
 <title>Quod Libet</title>
+<style type="text/css">
+body {
+   background: black;
+   color: white;
+   text-align: center;
+}
+
+input {
+   background: black;
+   color: white;
+   padding: 20px;
+}
+</style>
 <script type="text/javascript">
 function async_request( url, response_id ) {
    var xhttp = new XMLHttpRequest();
